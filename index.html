@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Squad Arena 3D FPS</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+    body { overflow: hidden; background: #111; color: #fff; user-select: none; }
+    #hud { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    #crosshair {
+      position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;
+      transform: translate(-50%, -50%); border: 2px solid #00ffcc; border-radius: 50%;
+    }
+    #crosshair::after {
+      content: ''; position: absolute; top: 50%; left: 50%; width: 4px; height: 4px;
+      background: #ff3366; transform: translate(-50%, -50%); border-radius: 50%;
+    }
+    #top-bar { position: absolute; top: 15px; left: 20px; display: flex; gap: 15px; font-size: 16px; font-weight: bold; }
+    .badge { background: rgba(0, 0, 0, 0.7); padding: 8px 14px; border-radius: 8px; border: 1px solid #333; }
+    #bottom-bar { position: absolute; bottom: 20px; left: 20px; display: flex; gap: 15px; font-size: 18px; font-weight: bold; }
+    #hp-val { color: #00ffcc; }
+    #menu {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(10, 12, 18, 0.9); display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px; pointer-events: auto;
+    }
+    h1 { color: #00ffcc; letter-spacing: 2px; }
+    .panel { background: #1c202b; padding: 20px; border-radius: 12px; width: 380px; text-align: center; border: 1px solid #2f3646; }
+    input, button { width: 100%; padding: 10px; margin-top: 8px; border-radius: 6px; border: none; font-size: 15px; }
+    input { background: #111; color: #fff; border: 1px solid #444; text-align: center; }
+    button { background: #00ffcc; color: #000; font-weight: bold; cursor: pointer; }
+    button:hover { background: #00d4aa; }
+    button.secondary { background: #3b82f6; color: #fff; }
+    #py-report {
+      margin-top: 12px; padding: 10px; background: #111; border-radius: 6px;
+      white-space: pre-line; font-size: 14px; color: #ffd166; min-height: 60px;
+    }
+    #status { font-size: 13px; color: #aaa; margin-top: 6px; }
+  </style>
+  <script src="https://cloudflare.com"></script>
+  <script src="https://unpkg.com"></script>
+  <script src="https://jsdelivr.net"></script>
+</head>
+<body>
+
+  <div id="hud">
+    <div id="crosshair"></div>
+    <div id="top-bar">
+      <div class="badge">Kills: <span id="kills-val">0</span></div>
+      <div class="badge">Deaths: <span id="deaths-val">0</span></div>
+      <div class="badge">Room ID: <span id="room-display">Loading...</span></div>
+    </div>
+    <div id="bottom-bar">
+      <div class="badge">HP: <span id="hp-val">100</span></div>
+      <div class="badge">WASD: Move | Mouse: Aim | Click: Shoot | ESC: Menu</div>
+    </div>
+  </div>
+
+  <div id="menu">
+    <h1>SQUAD ARENA 3D</h1>
+    <div class="panel">
+      <div id="status">Loading Python AI & Multiplayer...</div>
+      <button id="play-btn" disabled>Loading...</button>
+      
+      <hr style="margin: 14px 0; border-color: #333;">
+      <p style="font-size: 13px; color: #ccc;">Multiplayer (Share your Room ID at top-left):</p>
+      <input type="text" id="join-id" placeholder="Paste Friend's Room ID here" />
+      <button id="join-btn" class="secondary">Join Friend's Room</button>
+
+      <hr style="margin: 14px 0; border-color: #333;">
+      <button id="analyze-btn" style="background:#ffd166;">Run Python Skill Analyzer</button>
+      <div id="py-report">Play a bit, press ESC, and click above to run your friend's Python code!</div>
+    </div>
+  </div>
+<script>
+const stats = { hp: 100, kills: 0, deaths: 0, shotsFired: 0, shotsHit: 0 };
+let pyodide = null, pyBotBrain = null, pySkillAnalyzer = null;
+
+async function initPython() {
+  pyodide = await loadPyodide();
+  const res = await fetch('game_brain.py');
+  const code = await res.text();
+  await pyodide.runPythonAsync(code);
+  pyBotBrain = pyodide.globals.get('decide_bot_action');
+  pySkillAnalyzer = pyodide.globals.get('analyze_player_skill');
+
+  document.getElementById('status').innerText = "Python AI Ready!";
+  const playBtn = document.getElementById('play-btn');
+  playBtn.innerText = "CLICK TO PLAY";
+  playBtn.disabled = false;
+}
+initPython();
+
+document.getElementById('analyze-btn').onclick = () => {
+  if (!pySkillAnalyzer) return;
+  document.getElementById('py-report').innerText =
+    pySkillAnalyzer(stats.kills, stats.deaths, stats.shotsFired, stats.shotsHit);
+};
+
+// Three.js Scene
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a202c);
+scene.fog = new THREE.Fog(0x1a202c, 10, 85);
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 1.7, 15);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(80, 80),
+  new THREE.MeshStandardMaterial({ color: 0x2d3748 })
+);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+scene.add(new THREE.GridHelper(80, 40, 0x00ffcc, 0x4a5568));
+
+// Cover Boxes
+const boxGeo = new THREE.BoxGeometry(4, 3, 4);
+const boxMat = new THREE.MeshStandardMaterial({ color: 0x4a5568 });
+[[-12, 1.5, -10], [12, 1.5, -10], [0, 1.5, 0], [-14, 1.5, 12], [14, 1.5, 12]].forEach(pos => {
+  const box = new THREE.Mesh(boxGeo, boxMat);
+  box.position.set(...pos);
+  scene.add(box);
+});
+
+// AI Bots
+const bots = [];
+function spawnBot(x, z) {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1.2, 2.2, 1.2),
+    new THREE.MeshStandardMaterial({ color: 0xff3366 })
+  );
+  mesh.position.set(x, 1.1, z);
+  scene.add(mesh);
+  bots.push({ mesh, hp: 100, action: "PATROL", patrolDir: 1, lastShot: 0 });
+}
+spawnBot(-15, -20);
+spawnBot(15, -20);
+spawnBot(0, -25);
+
+// PeerJS Serverless Multiplayer
+const peer = new Peer();
+const connections = {};
+const remotePlayers = {};
+
+peer.on('open', id => {
+  document.getElementById('room-display').innerText = id;
+});
+
+peer.on('connection', conn => setupConnection(conn));
+
+document.getElementById('join-btn').onclick = () => {
+  const targetId = document.getElementById('join-id').value.trim();
+  if (!targetId) return;
+  const conn = peer.connect(targetId);
+  setupConnection(conn);
+  document.getElementById('room-display').innerText = "Joined: " + targetId.slice(0, 6);
+};
+
+function setupConnection(conn) {
+  connections[conn.peer] = conn;
+  conn.on('data', data => {
+    if (data.type === 'move') {
+      if (!remotePlayers[conn.peer]) {
+        const pMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(1.2, 2.2, 1.2),
+          new THREE.MeshStandardMaterial({ color: 0x3b82f6 })
+        );
+        scene.add(pMesh);
+        remotePlayers[conn.peer] = pMesh;
+      }
+      remotePlayers[conn.peer].position.set(data.x, 1.1, data.z);
+      remotePlayers[conn.peer].rotation.y = data.ry;
+    } else if (data.type === 'hit') {
+      takeDamage(25);
+    }
+  });
+}
+// Controls & Shooting
+const keys = {};
+let yaw = 0, pitch = 0;
+document.addEventListener('keydown', e => keys[e.code] = true);
+document.addEventListener('keyup', e => keys[e.code] = false);
+
+const menu = document.getElementById('menu');
+document.getElementById('play-btn').onclick = () => document.body.requestPointerLock();
+
+document.addEventListener('pointerlockchange', () => {
+  menu.style.display = document.pointerLockElement === document.body ? 'none' : 'flex';
+});
+
+document.addEventListener('mousemove', e => {
+  if (document.pointerLockElement !== document.body) return;
+  yaw -= e.movementX * 0.002;
+  pitch = Math.max(-1.4, Math.min(1.4, pitch - e.movementY * 0.002));
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = yaw;
+  camera.rotation.x = pitch;
+});
+
+const raycaster = new THREE.Raycaster();
+document.addEventListener('mousedown', () => {
+  if (document.pointerLockElement !== document.body) return;
+  stats.shotsFired++;
+  raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+  // Hit AI Bots
+  const hitBots = raycaster.intersectObjects(bots.map(b => b.mesh));
+  if (hitBots.length > 0) {
+    stats.shotsHit++;
+    const bot = bots.find(b => b.mesh === hitBots[0].object);
+    bot.hp -= 35;
+    if (bot.hp <= 0) {
+      stats.kills++;
+      document.getElementById('kills-val').innerText = stats.kills;
+      bot.hp = 100;
+      bot.mesh.position.set((Math.random() - 0.5) * 50, 1.1, -25);
+    }
+    return;
+  }
+
+  // Hit Friends
+  const friendIds = Object.keys(remotePlayers);
+  const hitFriends = raycaster.intersectObjects(friendIds.map(id => remotePlayers[id]));
+  if (hitFriends.length > 0) {
+    stats.shotsHit++;
+    const hitId = friendIds.find(id => remotePlayers[id] === hitFriends[0].object);
+    if (connections[hitId]) connections[hitId].send({ type: 'hit' });
+    stats.kills++;
+    document.getElementById('kills-val').innerText = stats.kills;
+  }
+});
+
+function takeDamage(amount) {
+  stats.hp -= amount;
+  if (stats.hp <= 0) {
+    stats.hp = 100;
+    stats.deaths++;
+    document.getElementById('deaths-val').innerText = stats.deaths;
+    camera.position.set((Math.random() - 0.5) * 30, 1.7, 20);
+  }
+  document.getElementById('hp-val').innerText = stats.hp;
+}
+
+// Main Loop
+let lastAiTick = 0;
+function animate(time) {
+  requestAnimationFrame(animate);
+
+  const speed = 0.18;
+  const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  if (keys['KeyW']) camera.position.addScaledVector(forward, speed);
+  if (keys['KeyS']) camera.position.addScaledVector(forward, -speed);
+  if (keys['KeyA']) camera.position.addScaledVector(right, -speed);
+  if (keys['KeyD']) camera.position.addScaledVector(right, speed);
+  camera.position.x = Math.max(-38, Math.min(38, camera.position.x));
+  camera.position.z = Math.max(-38, Math.min(38, camera.position.z));
+
+  Object.values(connections).forEach(conn => {
+    if (conn.open) conn.send({ type: 'move', x: camera.position.x, z: camera.position.z, ry: yaw });
+  });
+
+  if (pyBotBrain && time - lastAiTick > 500) {
+    lastAiTick = time;
+    bots.forEach(bot => {
+      const dist = bot.mesh.position.distanceTo(camera.position);
+      bot.action = pyBotBrain(dist, bot.hp, dist < 35);
+    });
+  }
+
+  bots.forEach(bot => {
+    const dir = new THREE.Vector3().subVectors(camera.position, bot.mesh.position).setY(0).normalize();
+    if (bot.action === "CHASE") {
+      bot.mesh.position.addScaledVector(dir, 0.07);
+    } else if (bot.action === "RETREAT") {
+      bot.mesh.position.addScaledVector(dir, -0.08);
+    } else if (bot.action === "PATROL") {
+      bot.mesh.position.x += 0.05 * bot.patrolDir;
+      if (Math.abs(bot.mesh.position.x) > 25) bot.patrolDir *= -1;
+    } else if (bot.action === "SHOOT" && time - bot.lastShot > 1500) {
+      bot.lastShot = time;
+      if (document.pointerLockElement === document.body) takeDamage(10);
+    }
+  });
+
+  renderer.render(scene, camera);
+}
+animate(0);
+</script>
+</body>
+</html>
